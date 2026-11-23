@@ -51,6 +51,23 @@ jobs:
       - name: Host tests
         run: sh tests/run_tests.sh
 
+      - name: fm1-hv in the emulator (fm1-emu): boot, play, read the audio ISR's load
+        continue-on-error: true
+        run: |
+          git clone --depth 1 https://github.com/joakimeriksson/fm1-emu.git /tmp/fm1-emu
+          (cd /tmp/fm1-emu && cargo build --release -p fm1-emu 2>&1 | tail -3)
+          ADDR=$(grep -E ' hv_stats$' build/dinghy.syms | cut -d' ' -f1)
+          echo "hv_stats at $ADDR"
+          run() {   # $1 title, $2 keys
+            echo "== $1"
+            FM1_STRICT=1 /tmp/fm1-emu/target/release/fm1-emu --fwsc build/dinghy.fwsc --ms 7000 --quiet \
+              --keys "$2" --dump "$ADDR" 6 --snap 3000,6500 --wav "build/emu-$(echo $1 | tr ' ' _).wav" 2>&1 | tail -12
+          }
+          run "trance lead chord" "1500-5000:n7,1500-5000:n11,1500-5000:n14,1500-5000:n19"
+          run "pwm pad chord" "800:PRESET:+2,1500-5000:n7,1500-5000:n11,1500-5000:n14,1500-5000:n19"
+          run "acid bass line" "800:PRESET:+1,1500-1700:n0,1800-2000:n12,2100-2300:n0,2400-2600:n3,2700-2900:n7"
+          echo "(hv_stats: magic, last us, peak us, peak voices, ISR calls, peak us at 4+ voices; budget 5805 us)"
+
       - name: fm1-hv host renders (the engine's demo WAVs, the app's screens)
         run: |
           mkdir -p build/hv

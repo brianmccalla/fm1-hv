@@ -45,6 +45,9 @@ static void ev_push(uint32_t on, uint32_t note, uint32_t vel)
 
 static float bufL[256], bufR[256];
 static volatile uint32_t load_us, load_peak_us, voices_now;
+/* for the emulator run in CI (read with fm1-emu --dump): magic, last us, peak us, peak voices, ISR calls,
+ * peak us while 4+ voices sound */
+volatile uint32_t hv_stats[6] = {0x48564C44u};
 
 static void app_audio(int32_t *out, uint32_t n)
 {
@@ -66,6 +69,11 @@ static void app_audio(int32_t *out, uint32_t n)
     load_us = t0;
     if (t0 > load_peak_us) load_peak_us = t0;
     voices_now = (uint32_t)hv_active_voices();
+    hv_stats[1] = t0;
+    if (t0 > hv_stats[2]) hv_stats[2] = t0;
+    if (voices_now > hv_stats[3]) hv_stats[3] = voices_now;
+    hv_stats[4]++;
+    if (voices_now >= 4u && t0 > hv_stats[5]) hv_stats[5] = t0;
 }
 
 /* ---- pages: four parameters each (index into the single, the label) */
