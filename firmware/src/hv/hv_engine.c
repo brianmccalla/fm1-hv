@@ -16,14 +16,14 @@
 #endif
 
 static float hv_fs = 44100.f, hv_inv_fs = 1.f / 44100.f;
-static uint8_t P[256];
+static uint8_t hv_P[256];
 
 /* ---------- small helpers ---------- */
-static inline float u7(int i) { return P[i] * (1.f / 127.f); }          /* 0..1 */
-static inline float s7(int i) { return (P[i] - 64) * (1.f / 64.f); }    /* -1..+1 */
+static inline float u7(int i) { return hv_P[i] * (1.f / 127.f); }          /* 0..1 */
+static inline float s7(int i) { return (hv_P[i] - 64) * (1.f / 64.f); }    /* -1..+1 */
 static inline float note_hz(float n) { return 440.f * hv_exp2f((n - 69.f) * (1.f / 12.f)); }
-static uint32_t rng = 22222;
-static inline float white(void) { rng = rng * 1664525u + 1013904223u; return (int32_t)rng * (1.f / 2147483648.f); }
+static uint32_t hv_rng = 22222;
+static inline float hv_white(void) { hv_rng = hv_rng * 1664525u + 1013904223u; return (int32_t)hv_rng * (1.f / 2147483648.f); }
 
 /* time constants: 0..127 -> seconds, exponential, ~1 ms .. ~10 s (guess) */
 static inline float env_time(int v) { return 0.0008f * hv_expf(v * (9.4f / 127.f)); }
@@ -73,8 +73,8 @@ static inline float wt_read(int w, float ph) {
 /* ---------- envelope (ADSR with Virus-style sustain slope) ---------- */
 typedef struct { int st; float lvl; } env_t;            /* st 0 off,1 A,2 D,3 S,4 R */
 static void env_run(env_t *e, int base, float dt) {
-    float a = env_time(P[base]), d = env_time(P[base + 1]), s = u7(base + 2);
-    int stv = P[base + 3]; float r = env_time(P[base + 4]);
+    float a = env_time(hv_P[base]), d = env_time(hv_P[base + 1]), s = u7(base + 2);
+    int stv = hv_P[base + 3]; float r = env_time(hv_P[base + 4]);
     switch (e->st) {
     case 1: e->lvl += dt / a; if (e->lvl >= 1.f) { e->lvl = 1.f; e->st = 2; } break;
     case 2: e->lvl += (s - e->lvl) * (1.f - hv_expf(-dt * 4.f / d));
@@ -91,18 +91,18 @@ static void env_run(env_t *e, int base, float dt) {
 /* ---------- LFO ---------- */
 typedef struct { float ph, sh, last; } lfo_t;
 static float lfo_run(lfo_t *l, int rate_i, int shape_i, float dt) {
-    float hz = lfo_hz(P[rate_i]);
+    float hz = lfo_hz(hv_P[rate_i]);
     l->ph += hz * dt;
-    if (l->ph >= 1.f) { l->ph -= hv_floorf(l->ph); l->last = l->sh; l->sh = white(); }
+    if (l->ph >= 1.f) { l->ph -= hv_floorf(l->ph); l->last = l->sh; l->sh = hv_white(); }
     float p = l->ph;
-    switch (P[shape_i]) {
+    switch (hv_P[shape_i]) {
     case 0: return hv_sin_turn(p);
     case 1: return p < .5f ? 4.f * p - 1.f : 3.f - 4.f * p;
     case 2: return 2.f * p - 1.f;
     case 3: return p < .5f ? 1.f : -1.f;
     case 4: return l->sh;
     case 5: return l->last + (l->sh - l->last) * p;
-    default: return wt_read((P[shape_i] - 4) & 63, p);
+    default: return wt_read((hv_P[shape_i] - 4) & 63, p);
     }
 }
 
@@ -158,14 +158,14 @@ typedef struct {
     lfo_t l1, l2;
     float lfo1, lfo2;
 } voice_t;
-static voice_t V[HV_NVOICE];
+static voice_t hv_V[HV_NVOICE];
 static int age_counter;
 
 /* per-block derived voice settings, then the sample loop */
 static void voice_render(voice_t *v, float *L, float *R, int n) {
     float dt = n * hv_inv_fs;
     /* glide */
-    float porta = P[PA_PORTA];
+    float porta = hv_P[PA_PORTA];
     if (porta > 0) v->pitch += (v->target - v->pitch) * (1.f - hv_expf(-dt / (0.002f * hv_expf(porta * 0.055f))));
     else v->pitch = v->target;
 
@@ -177,39 +177,39 @@ static void voice_render(voice_t *v, float *L, float *R, int n) {
     float fenv = v->fe.lvl, l1 = v->lfo1, l2 = v->lfo2;
 
     /* pitches */
-    float base = v->pitch + (P[PA_TRANSPOSE] - 64) + v->detune;
-    float n1 = base + (P[PA_O1_SEMI] - 64) + s7(PA_L1_O1) * l1 * 12.f;
+    float base = v->pitch + (hv_P[PA_TRANSPOSE] - 64) + v->detune;
+    float n1 = base + (hv_P[PA_O1_SEMI] - 64) + s7(PA_L1_O1) * l1 * 12.f;
     float det = u7(PA_O2_DETUNE); det = det * det * 0.5f;            /* up to +50 cents */
-    float n2 = base + (P[PA_O2_SEMI] - 64) + det + s7(PA_O2_FENV) * fenv * 24.f + s7(PA_L1_O2) * l1 * 12.f;
+    float n2 = base + (hv_P[PA_O2_SEMI] - 64) + det + s7(PA_O2_FENV) * fenv * 24.f + s7(PA_L1_O2) * l1 * 12.f;
     float inc1 = note_hz(n1) * hv_inv_fs, inc2 = note_hz(n2) * hv_inv_fs;
     inc1 = hv_clampf(inc1, 0.f, 0.45f); inc2 = hv_clampf(inc2, 0.f, 0.45f);
     float fm = u7(PA_O2_FM) + s7(PA_FM_FENV) * fenv + s7(PA_L2_FM) * l2 * 0.5f;
     fm = hv_clampf(fm, 0.f, 1.f); fm = fm * fm * 4.f;
-    int sync = P[PA_O2_SYNC];
+    int sync = hv_P[PA_O2_SYNC];
 
     float shp1 = u7(PA_O1_SHAPE) + s7(PA_L2_SHP) * l2 * 0.5f, shp2 = u7(PA_O2_SHAPE);
     shp1 = hv_clampf(shp1, 0.f, 1.f);
     float pw1 = 0.5f + 0.49f * hv_clampf(u7(PA_O1_PW) + s7(PA_L1_PW) * l1, 0.f, 1.f);
     float pw2 = 0.5f + 0.49f * u7(PA_O2_PW);
-    int w1 = P[PA_O1_WAVE] & 63, w2 = P[PA_O2_WAVE] & 63;
+    int w1 = hv_P[PA_O1_WAVE] & 63, w2 = hv_P[PA_O2_WAVE] & 63;
     float bal = (s7(PA_OSC_BAL) + 1.f) * 0.5f, g1 = 1.f - bal, g2 = bal;
     float subv = u7(PA_SUB_VOL), noisev = u7(PA_NOISE_VOL), ringv = u7(PA_RING_VOL);
-    int subtri = P[PA_SUB_SHAPE];
-    float o3v = u7(HV_B(PB_O3_VOL)); int o3m = P[HV_B(PB_O3_MODE)];
-    float inc3 = hv_clampf(note_hz(base + (P[HV_B(PB_O3_SEMI)] - 64) + u7(HV_B(PB_O3_DET)) * 0.3f) * hv_inv_fs, 0.f, .45f);
-    float ov = P[PA_OSC_VOL] <= 64 ? P[PA_OSC_VOL] / 64.f : 1.f + (P[PA_OSC_VOL] - 64) / 21.f;  /* >64 drives */
+    int subtri = hv_P[PA_SUB_SHAPE];
+    float o3v = u7(HV_B(PB_O3_VOL)); int o3m = hv_P[HV_B(PB_O3_MODE)];
+    float inc3 = hv_clampf(note_hz(base + (hv_P[HV_B(PB_O3_SEMI)] - 64) + u7(HV_B(PB_O3_DET)) * 0.3f) * hv_inv_fs, 0.f, .45f);
+    float ov = hv_P[PA_OSC_VOL] <= 64 ? hv_P[PA_OSC_VOL] / 64.f : 1.f + (hv_P[PA_OSC_VOL] - 64) / 21.f;  /* >64 drives */
 
     /* filters */
     float key = v->pitch - 60.f;
-    float pol1 = P[HV_B(PB_F1_POL)] ? 1.f : -1.f, pol2 = P[HV_B(PB_F2_POL)] ? 1.f : -1.f;
+    float pol1 = hv_P[HV_B(PB_F1_POL)] ? 1.f : -1.f, pol2 = hv_P[HV_B(PB_F2_POL)] ? 1.f : -1.f;
     float vel_env = 1.f;
-    float u1 = P[PA_CUT1] + pol1 * u7(PA_F1_ENV) * fenv * 127.f * vel_env + s7(PA_F1_KEYF) * key * 2.f
+    float u1 = hv_P[PA_CUT1] + pol1 * u7(PA_F1_ENV) * fenv * 127.f * vel_env + s7(PA_F1_KEYF) * key * 2.f
              + s7(PA_L2_CUT1) * l2 * 64.f;
-    float c2 = P[HV_B(PB_F2_LINK)] ? P[PA_CUT1] + (P[PA_CUT2] - 64) : P[PA_CUT2];
+    float c2 = hv_P[HV_B(PB_F2_LINK)] ? hv_P[PA_CUT1] + (hv_P[PA_CUT2] - 64) : hv_P[PA_CUT2];
     float u2 = c2 + pol2 * u7(PA_F2_ENV) * fenv * 127.f + s7(PA_F2_KEYF) * key * 2.f + s7(PA_L2_CUT2) * l2 * 64.f;
     float hz1 = hv_clampf(cut_hz(u1), 15.f, hv_fs * 0.45f), hz2 = hv_clampf(cut_hz(u2), 15.f, hv_fs * 0.45f);
     float r1 = hv_clampf(u7(PA_RES1) + s7(PA_L1_RES) * l1, 0.f, 1.f), r2 = u7(PA_RES2);
-    int m1 = P[PA_F1_MODE] & 7, m2 = P[PA_F2_MODE] & 3, route = P[PA_FROUTE] & 3, sat = P[PA_SAT];
+    int m1 = hv_P[PA_F1_MODE] & 7, m2 = hv_P[PA_F2_MODE] & 3, route = hv_P[PA_FROUTE] & 3, sat = hv_P[PA_SAT];
     float gg1 = hv_tan_pi(hz1 * hv_inv_fs), gg2 = hv_tan_pi(hz2 * hv_inv_fs);
     float k1 = 2.f - 1.98f * r1, k2 = 2.f - 1.98f * r2;
     float a11 = 1.f / (1.f + gg1 * (gg1 + k1)), a21 = gg1 * a11, a31 = gg1 * a21;
@@ -259,11 +259,11 @@ static void voice_render(voice_t *v, float *L, float *R, int n) {
         v->ph2 += i2; if (v->ph2 >= 1.f) v->ph2 -= 1.f; if (v->ph2 < 0.f) v->ph2 += 1.f;
         if (sync && wrap1) v->ph2 = v->ph1 * (inc2 / (inc1 > 1e-9f ? inc1 : 1e-9f));
 
-        float mix = (s1 * g1 + s2 * g2 + sub * subv + white() * noisev + s1 * s2 * ringv + o3 * o3v) * ov * 0.5f;
+        float mix = (s1 * g1 + s2 * g2 + sub * subv + hv_white() * noisev + s1 * s2 * ringv + o3 * o3v) * ov * 0.5f;
 
         float out;
         if (route == 3) {                                  /* split: osc1 -> F1, osc2 -> F2 */
-            float x1 = (s1 * g1 + sub * subv) * ov * 0.5f, x2 = (s2 * g2 + white() * noisev) * ov * 0.5f;
+            float x1 = (s1 * g1 + sub * subv) * ov * 0.5f, x2 = (s2 * g2 + hv_white() * noisev) * ov * 0.5f;
             float y1 = m1 < 4 ? svf_tick(&v->f1, x1, a11, a21, a31, k1, m1) : ladder_tick(&v->lad, x1, Gl, kl, m1 - 3);
             float y2 = svf_tick(&v->f2, saturate(x2, sat), a12, a22, a32, k2, m2);
             out = saturate(y1, sat) + y2;
@@ -292,7 +292,7 @@ static int16_t dlbuf[2][DL_LEN] HV_POOL; static int dlw; static float dl_lp[2];
 static void fx_render(float *L, float *R, int n) {
     float mix = u7(PA_CH_MIX);
     if (mix > 0.f) {
-        float rate = lfo_hz(P[PA_CH_RATE]) * 0.25f, depth = u7(PA_CH_DEPTH) * 0.004f * hv_fs;
+        float rate = lfo_hz(hv_P[PA_CH_RATE]) * 0.25f, depth = u7(PA_CH_DEPTH) * 0.004f * hv_fs;
         float dly = (0.002f + u7(PA_CH_DELAY) * 0.02f) * hv_fs, fbk = s7(PA_CH_FB) * 0.9f;
         for (int i = 0; i < n; i++) {
             chph += rate * hv_inv_fs; if (chph >= 1.f) chph -= 1.f;
@@ -310,7 +310,7 @@ static void fx_render(float *L, float *R, int n) {
             chw = (chw + 1) & (CH_LEN - 1);
         }
     }
-    int mode = P[PA_DLY_MODE];
+    int mode = hv_P[PA_DLY_MODE];
     float send = u7(PA_DLY_SEND);
     if (mode && send > 0.f) {
         /* every delay/reverb mode plays as a stereo delay for now; reverb comes in phase 3 */
@@ -333,7 +333,7 @@ static void fx_render(float *L, float *R, int n) {
 /* ---------- API ---------- */
 void hv_init(float fs) {
     hv_fs = fs; hv_inv_fs = 1.f / fs;
-    memset(V, 0, sizeof V); hv_init_patch(P);
+    memset(hv_V, 0, sizeof hv_V); hv_init_patch(hv_P);
     memset(dlbuf, 0, sizeof dlbuf); memset(chbuf, 0, sizeof chbuf);
     build_waves();
 }
@@ -354,22 +354,22 @@ void hv_init_patch(uint8_t p[256]) {
     p[HV_B(PB_F1_POL)] = 1; p[HV_B(PB_F2_POL)] = 1; p[HV_B(PB_AMP_VEL)] = 64 + 20;
     memcpy(p + HV_B(PB_NAME), "Init      ", 10);
 }
-void hv_load_patch(const uint8_t p[256]) { memcpy(P, p, 256); }
-void hv_set_param(int i, uint8_t v) { if (i >= 0 && i < 256) P[i] = v & 127; }
-uint8_t hv_get_param(int i) { return (i >= 0 && i < 256) ? P[i] : 0; }
+void hv_load_patch(const uint8_t p[256]) { memcpy(hv_P, p, 256); }
+void hv_set_param(int i, uint8_t v) { if (i >= 0 && i < 256) hv_P[i] = v & 127; }
+uint8_t hv_get_param(int i) { return (i >= 0 && i < 256) ? hv_P[i] : 0; }
 
-static int uni_count(void) { int m = P[PA_UNI_MODE]; return m <= 0 ? 1 : m + 1 > 4 ? 4 : m + 1; }
+static int uni_count(void) { int m = hv_P[PA_UNI_MODE]; return m <= 0 ? 1 : m + 1 > 4 ? 4 : m + 1; }
 
 static void start_voice(voice_t *v, int note, int vel, float detune, float pan, int legato) {
     v->note = note; v->gate = 1; v->vel = vel / 127.f; v->age = (float)++age_counter;
     v->target = (float)note;
-    if (!v->on || P[PA_PORTA] == 0) v->pitch = (float)note;
+    if (!v->on || hv_P[PA_PORTA] == 0) v->pitch = (float)note;
     v->detune = detune; v->pan = pan;
     if (!legato) {
         v->fe.st = 1; v->ae.st = 1;
         if (!v->on) { v->fe.lvl = v->ae.lvl = 0.f; memset(&v->f1, 0, sizeof v->f1); memset(&v->f2, 0, sizeof v->f2); memset(&v->f1b, 0, sizeof v->f1b); memset(&v->lad, 0, sizeof v->lad); }
-        if (P[PA_L1_KTRIG]) v->l1.ph = 0.f;
-        if (P[PA_L2_KTRIG]) v->l2.ph = 0.f;
+        if (hv_P[PA_L1_KTRIG]) v->l1.ph = 0.f;
+        if (hv_P[PA_L2_KTRIG]) v->l2.ph = 0.f;
         v->ph1 = 0.f; v->ph2 = 0.25f; v->phs = 0.f;
     }
     v->on = 1;
@@ -379,17 +379,17 @@ void hv_note_on(int note, int vel) {
     if (vel == 0) { hv_note_off(note); return; }
     int u = uni_count();
     float spread = u7(PA_UNI_DET) * 0.3f, pspread = u7(PA_UNI_PAN);
-    int mono = P[PA_KEYMODE] != 0;
+    int mono = hv_P[PA_KEYMODE] != 0;
     for (int k = 0; k < u; k++) {
         voice_t *best = 0;
-        if (mono) best = &V[k];
+        if (mono) best = &hv_V[k];
         else {
-            for (int i = 0; i < HV_NVOICE; i++) if (!V[i].on) { best = &V[i]; break; }
+            for (int i = 0; i < HV_NVOICE; i++) if (!hv_V[i].on) { best = &hv_V[i]; break; }
             if (!best) {                                  /* steal: oldest released, then oldest */
                 for (int i = 0; i < HV_NVOICE; i++)
-                    if (!V[i].gate && (!best || V[i].age < best->age)) best = &V[i];
+                    if (!hv_V[i].gate && (!best || hv_V[i].age < best->age)) best = &hv_V[i];
                 if (!best) for (int i = 0; i < HV_NVOICE; i++)
-                    if (!best || V[i].age < best->age) best = &V[i];
+                    if (!best || hv_V[i].age < best->age) best = &hv_V[i];
             }
         }
         float pos = u > 1 ? (float)k / (u - 1) * 2.f - 1.f : 0.f;
@@ -398,15 +398,15 @@ void hv_note_on(int note, int vel) {
 }
 void hv_note_off(int note) {
     for (int i = 0; i < HV_NVOICE; i++)
-        if (V[i].on && V[i].gate && V[i].note == note) { V[i].gate = 0; V[i].fe.st = 4; V[i].ae.st = 4; }
+        if (hv_V[i].on && hv_V[i].gate && hv_V[i].note == note) { hv_V[i].gate = 0; hv_V[i].fe.st = 4; hv_V[i].ae.st = 4; }
 }
-void hv_all_off(void) { for (int i = 0; i < HV_NVOICE; i++) { V[i].gate = 0; V[i].fe.st = V[i].ae.st = 4; } }
-int hv_active_voices(void) { int c = 0; for (int i = 0; i < HV_NVOICE; i++) c += V[i].on; return c; }
+void hv_all_off(void) { for (int i = 0; i < HV_NVOICE; i++) { hv_V[i].gate = 0; hv_V[i].fe.st = hv_V[i].ae.st = 4; } }
+int hv_active_voices(void) { int c = 0; for (int i = 0; i < HV_NVOICE; i++) c += hv_V[i].on; return c; }
 
 void hv_render(float *L, float *R, int n) {
     for (int o = 0; o < n; o += HV_BLOCK) {
         int m = n - o < HV_BLOCK ? n - o : HV_BLOCK;
-        for (int i = 0; i < HV_NVOICE; i++) if (V[i].on) voice_render(&V[i], L + o, R + o, m);
+        for (int i = 0; i < HV_NVOICE; i++) if (hv_V[i].on) voice_render(&hv_V[i], L + o, R + o, m);
     }
     fx_render(L, R, n);
 }
