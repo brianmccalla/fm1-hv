@@ -1,0 +1,20 @@
+100 enc 6 0
+200 keys 0x80
+700 keys 0x4880
+1500 keys 0
+1600 shot
+1700 enc 6 1
+1800 keys 0x01
+2100 keys 0
+2150 keys 0x01
+2400 keys 0
+2500 enc 3 10
+2600 enc 2 20
+2700 keys 0x1000
+3200 keys 0
+3300 shot
+3400 enc 6 1
+3500 keys 0x4890
+5500 keys 0
+6000 shot
+6400 end
