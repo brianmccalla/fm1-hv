@@ -51,7 +51,7 @@ jobs:
       - name: Host tests
         run: sh tests/run_tests.sh
 
-      - name: fm1-hv in the emulator (fm1-emu): boot, play, read the audio ISR's load
+      - name: "fm1-hv in the emulator (fm1-emu) - boot, play, read the audio ISR load"
         continue-on-error: true
         run: |
           git clone --depth 1 https://github.com/joakimeriksson/fm1-emu.git /tmp/fm1-emu
