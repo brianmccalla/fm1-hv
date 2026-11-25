@@ -51,6 +51,19 @@ jobs:
       - name: Host tests
         run: sh tests/run_tests.sh
 
+      - name: Publish the FM-1 package on the builds branch (pushes to main)
+        if: github.ref == 'refs/heads/main'
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/pub
+          cp build/dinghy.fwsc "/tmp/pub/fm1-hv-${GITHUB_SHA::7}.fwsc"
+          cp build/dinghy.fwsc /tmp/pub/fm1-hv-latest.fwsc
+          cd /tmp/pub && sha256sum *.fwsc > SHA256SUMS
+          git init -q -b builds && git add . 
+          git -c user.name=fm1-hv-ci -c user.email=ci@users.noreply.github.com commit -qm "FM-1 package from ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" builds
+
       - name: "fm1-hv in the emulator (fm1-emu) - boot, play, read the audio ISR load"
         continue-on-error: true
         run: |
